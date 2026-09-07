@@ -1,0 +1,51 @@
+name: Validate infrastructure and manifests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - terraform/**
+      - k8s/**
+      - argocd/**
+      - .github/workflows/validate.yaml
+  pull_request:
+    branches: [main]
+    paths:
+      - terraform/**
+      - k8s/**
+      - argocd/**
+      - .github/workflows/validate.yaml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        directory: [eks, platform]
+    defaults:
+      run:
+        working-directory: terraform/${{ matrix.directory }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.9
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false -lockfile=readonly
+      - run: terraform validate -no-color
+
+  manifests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+        with:
+          version: v1.35.0
+      - name: Render Kubernetes manifests
+        run: kubectl kustomize k8s > /tmp/backend.yaml

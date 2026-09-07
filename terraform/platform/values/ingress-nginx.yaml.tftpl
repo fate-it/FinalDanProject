@@ -1,0 +1,41 @@
+controller:
+  replicaCount: 1
+  ingressClass: nginx
+  ingressClassResource:
+    name: nginx
+    default: false
+  allowSnippetAnnotations: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+  # Port 80 is redirected on a separate listener. TLS terminates at the NLB,
+  # whose 443 listener forwards HTTP to port 80 in the controller container.
+  # This avoids redirect loops caused by force-ssl-redirect behind an NLB.
+  containerPort:
+    http: 80
+    https: 443
+    tohttps: 2443
+  config:
+    ssl-redirect: "false"
+    http-snippet: |
+      server {
+        listen 2443;
+        return 308 https://$host$request_uri;
+      }
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Cluster
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      service.beta.kubernetes.io/aws-load-balancer-internal: "false"
+      service.beta.kubernetes.io/aws-load-balancer-subnets: "${subnet_ids}"
+      service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+      service.beta.kubernetes.io/aws-load-balancer-ssl-cert: "${certificate_arn}"
+      service.beta.kubernetes.io/aws-load-balancer-ssl-ports: https
+      service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
+    targetPorts:
+      http: tohttps
+      https: http

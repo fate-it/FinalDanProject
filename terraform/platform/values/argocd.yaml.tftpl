@@ -1,0 +1,62 @@
+global:
+  domain: "${argocd_domain}"
+
+configs:
+  params:
+    # HTTPS terminates on the ACM-equipped NLB; the in-cluster backend is HTTP.
+    server.insecure: true
+  cm:
+    url: "https://${argocd_domain}"
+    timeout.reconciliation: 60s
+    timeout.reconciliation.jitter: 0s
+
+server:
+  replicas: 1
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hostname: "${argocd_domain}"
+    annotations:
+      nginx.ingress.kubernetes.io/backend-protocol: HTTP
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+repoServer:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 256Mi
+
+redis:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+redis-ha:
+  enabled: false
+dex:
+  enabled: false
+applicationSet:
+  enabled: false
+notifications:
+  enabled: false
