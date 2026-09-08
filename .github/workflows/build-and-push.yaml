@@ -44,7 +44,8 @@ jobs:
           set -euo pipefail
           docker run -d --name backend-test --read-only --cap-drop=ALL --security-opt=no-new-privileges -p 127.0.0.1:8000:8000 backend:test
           trap 'docker logs backend-test; docker rm -f backend-test' EXIT
-          curl --fail --retry 15 --retry-delay 1 --retry-connrefused http://127.0.0.1:8000/ > /tmp/backend-response.json
+          # Docker can reset connections before the Python listener is ready.
+          curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors --connect-timeout 1 --max-time 2 --output /tmp/backend-response.json http://127.0.0.1:8000/
           python -c 'import json, os; assert json.load(open("/tmp/backend-response.json")) == {"status": "ok", "version": os.environ["GITHUB_SHA"]}'
       - name: Select Docker Hub repository
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
