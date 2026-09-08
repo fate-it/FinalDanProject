@@ -64,7 +64,7 @@ variable "vpc_cidr" {
 }
 
 variable "node_instance_type" {
-  description = "One x86_64 node; t3.medium is sized for this small non-HA lab."
+  description = "One x86_64 node with at least 4 GiB RAM; c7i-flex.large is eligible for the current account's Free plan."
   type        = string
-  default     = "t3.medium"
+  default     = "c7i-flex.large"
 }

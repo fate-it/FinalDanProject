@@ -6,7 +6,7 @@ region             = "eu-central-1"
 # The devops13 label is added automatically; do not add it to zone_name.
 zone_name          = "serhii-devops13.pp.ua"
 kubernetes_version = "1.35"
-node_instance_type = "t3.medium"
+node_instance_type = "c7i-flex.large"
 
 # Replace with your current external IPv4 address + /32 (this is a documentation IP).
 api_allowed_cidrs = ["203.0.113.10/32"]

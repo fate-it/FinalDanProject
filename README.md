@@ -211,7 +211,11 @@ terraform -chdir=terraform/eks apply eks.tfplan
 
 Создаются отдельная VPC, две публичные подсети в разных Availability Zones,
 Internet Gateway, таблица маршрутизации, IAM-роли, EKS и одна managed node group
-с одним `t3.medium`, AL2023. Node получает публичный IP для исходящего доступа к
+с одним `c7i-flex.large` (2 vCPU, 4 ГиБ RAM), AL2023. Для текущего AWS Free plan
+проверена доступность этого типа в `eu-central-1a` и `eu-central-1b`.
+`t3.medium` был отклонён AWS как недоступный для этого плана. Для другого аккаунта
+проверьте допустимые типы командой `aws ec2 describe-instance-types --region eu-central-1 --filters Name=free-tier-eligible,Values=true`.
+Node получает публичный IP для исходящего доступа к
 Docker Hub; NAT Gateway не создаётся. Основные add-ons — VPC CNI, kube-proxy,
 CoreDNS — подбираются для указанной версии EKS. Публичный API ограничен вашими
 CIDR; worker общается с control plane через приватный endpoint.
