@@ -2,10 +2,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 namespace: backend
 resources:
-  - deployment.yaml
-  - service.yaml
-  - ingress.yaml
+- deployment.yaml
+- service.yaml
+- ingress.yaml
 images:
-  - name: backend
-    newName: docker.io/kuzmenkoserhii053/finaldan-backend
-    digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+- name: backend
+  newName: docker.io/kuzmenkoserhii053/finaldan-backend
+  digest: sha256:f119e85f791c4ccd696f8e24fa825114e78703c8cc58ed3f9930642f2b736d26
