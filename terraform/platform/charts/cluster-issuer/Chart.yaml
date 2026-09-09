@@ -1,0 +1,5 @@
+apiVersion: v2
+name: cluster-issuer
+description: Let's Encrypt HTTP-01 issuer for the final project
+type: application
+version: 0.1.0

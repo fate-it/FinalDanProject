@@ -10,7 +10,7 @@ GitHub-репозиторий: [fate-it/FinalDanProject](https://github.com/fate
 | Docker-образ | `Dockerfile`, пользователь `10001`, healthcheck |
 | GitHub Actions → Docker Hub | `.github/workflows/build-and-push.yaml`, GitHub Secrets |
 | EKS: одна node group, один node | `terraform/eks`, `min/desired/max = 1` |
-| NGINX Ingress, HTTPS и DNS | `terraform/platform/ingress.tf`, `acm.tf` |
+| NGINX Ingress, HTTPS и DNS | `terraform/platform/ingress.tf`, `dns.tf`, `cert-manager.tf` |
 | Argo CD через Terraform и Helm | `terraform/platform/argocd.tf` |
 | Deployment, Service, Ingress | `k8s/`, собираются Kustomize |
 | Автоматическая доставка | `argocd/application.yaml`, auto-sync, prune, self-heal |
@@ -22,8 +22,8 @@ flowchart LR
   Hub --> Digest[CI записывает digest в k8s/kustomization.yaml]
   Digest --> Argo[Argo CD: auto-sync]
   Argo --> Pod[EKS: Python Pod]
-  User[HTTPS-запрос] --> NLB[NLB + сертификат ACM]
-  NLB --> NGINX[NGINX Ingress]
+  User[HTTPS-запрос] --> Node[Публичный IP единственной ноды: 443]
+  Node --> NGINX[NGINX Ingress + сертификат Let's Encrypt]
   NGINX --> Service[ClusterIP Service]
   Service --> Pod
 ```
@@ -53,8 +53,8 @@ Docker Hub username — `kuzmenkoserhii053`, repository — `finaldan-backend`.
 Docker и Python `>= 3.10`. Для EKS `1.35` используйте kubectl `1.34–1.36`.
 Helm CLI для развертывания не требуется: chart устанавливает Terraform provider.
 
-AWS-профиль должен иметь доступ к EKS, EC2/VPC, IAM, Elastic Load Balancing,
-ACM и существующей **публичной** Route 53 hosted zone вашего домена. Зона должна быть
+AWS-профиль должен иметь доступ к EKS, EC2/VPC, IAM
+и существующей **публичной** Route 53 hosted zone вашего домена. Зона должна быть
 делегирована в DNS. Если доступ требует MFA, сначала получите действующую
 MFA/SSO-сессию. Пример настройки окружения:
 
@@ -118,7 +118,8 @@ DNS-зоне. Тогда `zone_name` должен содержать именн�
 При имени кластера `student1` адрес приложения — `app.student1.devops13.serhii-devops13.pp.ua`,
 адрес Argo CD — `argocd.student1.devops13.serhii-devops13.pp.ua`.
 При выборе другого имени кластера обновите соответствующую часть hostname в `k8s/ingress.yaml`.
-Записи приложения, Argo CD и ACM-валидации создаст `terraform/platform`.
+Записи приложения и Argo CD создаст `terraform/platform`. Для HTTP-01 проверки
+сертификатов порт 80 ноды должен быть доступен из интернета.
 
 Route 53 DNS платный даже при бесплатной регистрации домена: для первых 25 зон
 базовая стоимость — $0.50 за зону в месяц плюс DNS-запросы
@@ -233,7 +234,7 @@ aws eks list-nodegroups --cluster-name "$FINAL_CLUSTER" --region "$FINAL_REGION"
 Ожидается одна node group и один `Ready` node. Во время обслуживания EKS может
 временно увеличить число EC2 instances для замены node; штатный размер группы — 1.
 
-## 4. NGINX, ACM, DNS и Argo CD
+## 4. NGINX, HTTPS, DNS и Argo CD
 
 ```bash
 terraform -chdir=terraform/platform init
@@ -246,24 +247,27 @@ terraform -chdir=terraform/platform apply platform.tfplan
 к существующему EKS подключаются Kubernetes/Helm providers, используя обновляемый
 токен `aws eks get-token`. Затем создаются:
 
-- ACM wildcard-сертификат `*.<cluster_name>.devops<group_number>.<zone_name>` с DNS-валидацией;
-- Helm release `ingress-nginx`, Service типа LoadBalancer и публичный AWS NLB;
-- CNAME `app.<cluster_name>.devops<group_number>.<zone_name>` и `argocd.<cluster_name>.devops<group_number>.<zone_name>` на NLB;
-- Helm release `argocd` с Ingress и опросом Git каждые 60 секунд.
+- Правила security group для публичного HTTP/HTTPS на портах 80/443 ноды;
+- A-записи `app.<cluster_name>.devops<group_number>.<zone_name>` и `argocd.<cluster_name>.devops<group_number>.<zone_name>` на публичный IP ноды;
+- Helm release `ingress-nginx` с `hostPort` 80/443 и внутренним Service типа ClusterIP;
+- Helm release `cert-manager` и отдельный локальный Helm chart с ClusterIssuer `letsencrypt`;
+- Helm release `argocd` с TLS Ingress и опросом Git каждые 60 секунд.
 
-NGINX использует интеграцию `aws-load-balancer-type: nlb` из примера курса:
-Service обслуживает встроенный в EKS AWS service controller. Auto Mode и
-отдельный AWS Load Balancer Controller здесь не включаются. Cross-zone balancing
-позволяет NLB из обеих подсетей отправлять трафик на единственный node.
+В этом аккаунте AWS отклоняет создание балансировщика с `OperationNotPermitted`.
+Поэтому выбран доступ прямо к единственной ноде. Terraform находит её по тегам EKS
+и состоянию `running`. nginx завершает HTTPS и перенаправляет HTTP на HTTPS;
+Argo CD внутри кластера принимает HTTP. cert-manager выпускает и обновляет
+сертификаты Let's Encrypt через HTTP-01, используя Ingress класса `nginx`.
+Сертификат приложения появляется после создания его Ingress через Argo CD.
 
-NLB завершает HTTPS с сертификатом ACM. Его HTTPS listener направляет HTTP
-в NGINX, затем в Argo CD или backend. Входящий HTTP отправляется на отдельный
-порт NGINX `2443`, который возвращает `308` на HTTPS. Поэтому отключение
-`ssl-redirect` на Ingress не оставляет публичный HTTP-интерфейс Argo CD открытым
-для входа и не создаёт цикл HTTPS-редиректов.
+Эта схема рассчитана на одну ноду. После её замены публичный IP может измениться:
+дождитесь одной работающей ноды и повторите `terraform -chdir=terraform/platform apply`,
+чтобы обновить DNS и адрес, публикуемый nginx. Обновление nginx использует `Recreate`,
+поскольку две реплики не могут одновременно занять порты 80/443 одной ноды;
+во время обновления будет короткий перерыв доступа.
 
-Вместо ExternalDNS Terraform управляет только двумя записями проекта и
-валидацией сертификата. EBS CSI не устанавливается: выбранные компоненты
+Вместо ExternalDNS Terraform управляет двумя A-записями проекта.
+EBS CSI не устанавливается: выбранные компоненты
 работают без PersistentVolume. Конфигурация Argo CD рассчитана на один node:
 HA, Dex, ApplicationSet и notifications выключены.
 
@@ -271,6 +275,8 @@ HA, Dex, ApplicationSet и notifications выключены.
 terraform -chdir=terraform/platform output
 kubectl -n ingress-nginx get pods,svc
 kubectl -n argocd get pods,ingress
+kubectl get clusterissuer letsencrypt
+kubectl get certificates -A
 ```
 
 Адрес Argo CD находится в output `argocd_url`. Username — `admin`.
@@ -338,19 +344,21 @@ Workflow `validate.yaml` проверяет Terraform и рендеринг Kust
 
 Локально проверены: 5 Python-тестов, Docker build и запуск контейнера (HTTP 200,
 UID 10001, read-only filesystem, завершение по SIGTERM), оба Terraform root,
-оба workflow через actionlint, рендеринг Kustomize и обоих Helm charts.
+оба workflow через actionlint, рендеринг Kustomize и Helm charts.
 Docker smoke test на этой машине выполнялся с `--network none` через loopback
 контейнера, поскольку локальное ядро не поддерживает создание Docker veth bridge.
-Публикация в Docker Hub, GitHub Actions и AWS-развертывание ещё не выполнялись.
+GitHub Actions успешно публикует образ в Docker Hub и коммитит digest в Git.
+EKS создан с одной нодой `c7i-flex.large`; её статус подтверждён как `Ready`.
 
 | Симптом | Проверка |
 | --- | --- |
-| DNS не разрешается / ACM ожидает подтверждение | Существование и делегация hosted zone; права Route 53; записи в AWS |
+| DNS не разрешается | Делегация hosted zone; A-записи в AWS должны совпадать с текущим публичным IP ноды |
+| Сертификат не готов | `kubectl get certificates,certificaterequests,orders,challenges -A`, доступ к порту 80 и статус ClusterIssuer |
 | `AccessDenied` от AWS | `aws sts get-caller-identity`, профиль и срок MFA/SSO-сессии |
 | EKS API недоступен | Текущий публичный IP должен входить в `api_allowed_cidrs` |
 | `ImagePullBackOff` | Первый успешный CI, digest в Git, публичность образа; `kubectl -n backend describe pod <pod>` |
 | CI не может обновить Git | `contents: write`, workflow permissions и правила защиты `main` |
-| Service LoadBalancer остаётся pending | `kubectl -n ingress-nginx describe service ingress-nginx-controller`, события, теги подсетей и квоты ELB |
+| Нет доступа к nginx | Порты 80/443 в security group, статус Pod nginx, его hostPort и текущий публичный IP ноды |
 | Argo CD `ComparisonError` | Доступ к GitHub, ветка `main`, путь `k8s` |
 
 ## State, версии и удаление
@@ -362,19 +370,19 @@ Terraform state хранится локально в двух отдельных
 и **разные** state keys для двух root-модулей, включите блокировку и обновите
 `terraform_remote_state` в `terraform/platform/providers.tf`.
 
-Созданные EKS, EC2, NLB и публичные IPv4 оплачиваются AWS. После сдачи проекта
+Созданные EKS, EC2 и публичные IPv4 учитываются в расходах AWS; условия покрытия
+кредитами зависят от плана аккаунта. После сдачи проекта
 удаляйте ресурсы в порядке Application → platform → EKS:
 
 ```bash
 kubectl delete -f argocd/application.yaml --wait=true --timeout=180s
 terraform -chdir=terraform/platform destroy
-# Дождитесь удаления NLB и его сетевых ресурсов, затем:
 terraform -chdir=terraform/eks destroy
 ```
 
 Finalizer Application удалит управляемые Deployment, Service и Ingress, пока
 Argo CD ещё работает. Не удаляйте EKS раньше platform: Helm и Kubernetes
-providers нужны работающий API и IAM-доступ для очистки LoadBalancer.
+providers нужны работающий API и IAM-доступ для удаления компонентов платформы.
 
 По требованию задания используется community `ingress-nginx` `4.15.1`.
 Этот проект [завершил сопровождение в марте 2026](https://kubernetes.io/blog/2026/01/29/ingress-nginx-statement/),
@@ -383,6 +391,7 @@ providers нужны работающий API и IAM-доступ для очи�
 на `9.4.11`, EKS — на `1.35` (версию можно изменить в `.tfvars`).
 
 Документация: [версии EKS](https://docs.aws.amazon.com/eks/latest/userguide/kubernetes-versions.html),
-[NGINX и TLS на AWS NLB](https://kubernetes.github.io/ingress-nginx/deploy/#aws),
+[установка cert-manager](https://cert-manager.io/docs/installation/helm/),
+[сертификаты HTTP-01](https://cert-manager.io/docs/configuration/acme/http01/),
 [Argo CD auto-sync](https://argo-cd.readthedocs.io/en/stable/user-guide/auto_sync/),
 [события workflow и GITHUB_TOKEN](https://docs.github.com/en/actions/how-tos/writing-workflows/choosing-when-your-workflow-runs/triggering-a-workflow).

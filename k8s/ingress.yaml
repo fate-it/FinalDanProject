@@ -3,10 +3,14 @@ kind: Ingress
 metadata:
   name: backend
   annotations:
-    # TLS and HTTP -> HTTPS redirect are handled by the shared ingress entrypoint.
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - app.student1.devops13.serhii-devops13.pp.ua
+      secretName: backend-tls
   rules:
     - host: app.student1.devops13.serhii-devops13.pp.ua
       http:

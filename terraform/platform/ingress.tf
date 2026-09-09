@@ -1,5 +1,4 @@
-# Matches the course's NLB integration with the EKS AWS cloud provider.
-# "nlb" deliberately uses the legacy EKS service controller, not Auto Mode or LBC.
+# The account cannot create AWS load balancers; expose this lab's single node.
 resource "helm_release" "ingress_nginx" {
   name             = "ingress-nginx"
   repository       = "https://kubernetes.github.io/ingress-nginx"
@@ -12,29 +11,8 @@ resource "helm_release" "ingress_nginx" {
   timeout          = 900
 
   values = [templatefile("${path.module}/values/ingress-nginx.yaml.tftpl", {
-    certificate_arn = aws_acm_certificate_validation.ingress.certificate_arn
-    subnet_ids      = join(",", local.eks.public_subnet_ids)
+    public_ip = data.aws_instance.node.public_ip
   })]
-}
 
-data "kubernetes_service_v1" "ingress" {
-  metadata {
-    name      = "ingress-nginx-controller"
-    namespace = helm_release.ingress_nginx.namespace
-  }
-
-  depends_on = [helm_release.ingress_nginx]
-}
-
-resource "aws_route53_record" "services" {
-  for_each = {
-    app    = local.app_domain
-    argocd = local.argocd_domain
-  }
-
-  zone_id = data.aws_route53_zone.group.zone_id
-  name    = each.value
-  type    = "CNAME"
-  ttl     = 60
-  records = [data.kubernetes_service_v1.ingress.status[0].load_balancer[0].ingress[0].hostname]
+  depends_on = [aws_vpc_security_group_ingress_rule.web]
 }

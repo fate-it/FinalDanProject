@@ -3,7 +3,7 @@ global:
 
 configs:
   params:
-    # HTTPS terminates on the ACM-equipped NLB; the in-cluster backend is HTTP.
+    # nginx terminates HTTPS; the in-cluster Argo CD backend is HTTP.
     server.insecure: true
   cm:
     url: "https://${argocd_domain}"
@@ -16,9 +16,11 @@ server:
     enabled: true
     ingressClassName: nginx
     hostname: "${argocd_domain}"
+    tls: true
     annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
       nginx.ingress.kubernetes.io/backend-protocol: HTTP
-      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
   resources:
     requests:
       cpu: 50m

@@ -13,5 +13,5 @@ resource "helm_release" "argocd" {
     argocd_domain = local.argocd_domain
   })]
 
-  depends_on = [helm_release.ingress_nginx]
+  depends_on = [helm_release.ingress_nginx, helm_release.certificate_issuer, aws_route53_record.services]
 }
