@@ -8,4 +8,4 @@ resources:
 images:
 - name: backend
   newName: docker.io/kuzmenkoserhii053/finaldan-backend
-  digest: sha256:f119e85f791c4ccd696f8e24fa825114e78703c8cc58ed3f9930642f2b736d26
+  digest: sha256:89534e924312eec0f0ce09a24894b175f68baaaf35232abfb3a2e330cff2c481
