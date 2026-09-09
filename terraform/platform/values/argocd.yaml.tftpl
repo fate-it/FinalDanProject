@@ -59,6 +59,7 @@ redis-ha:
 dex:
   enabled: false
 applicationSet:
-  enabled: false
+  # Chart 9.x always renders this Deployment; scale down its unused controller.
+  replicas: 0
 notifications:
   enabled: false
