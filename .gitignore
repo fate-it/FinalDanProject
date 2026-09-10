@@ -20,5 +20,6 @@ override.tf.json
 *_override.tf.json
 .kubeconfig
 reference/
+.local/
 
 # Commit .terraform.lock.hcl files to pin provider versions.

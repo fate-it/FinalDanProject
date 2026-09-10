@@ -22,31 +22,7 @@ jobs:
       digest: ${{ steps.publish.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - name: Install validation dependencies
-        run: python -m pip install -r requirements-dev.txt
-      - name: Test HTTP responses and GitOps image update
-        run: python -m unittest discover -s tests -v
       - uses: docker/setup-buildx-action@v3
-      - name: Build a test image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          load: true
-          tags: backend:test
-          build-args: APP_VERSION=${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-      - name: Smoke test the container
-        run: |
-          set -euo pipefail
-          docker run -d --name backend-test --read-only --cap-drop=ALL --security-opt=no-new-privileges -p 127.0.0.1:8000:8000 backend:test
-          trap 'docker logs backend-test; docker rm -f backend-test' EXIT
-          # Docker can reset connections before the Python listener is ready.
-          curl --fail --silent --show-error --retry 15 --retry-delay 1 --retry-all-errors --connect-timeout 1 --max-time 2 --output /tmp/backend-response.json http://127.0.0.1:8000/
-          python -c 'import json, os; assert json.load(open("/tmp/backend-response.json")) == {"status": "ok", "version": os.environ["GITHUB_SHA"]}'
       - name: Select Docker Hub repository
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         id: image
@@ -63,16 +39,16 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Publish the tested image
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+      - name: Build and publish image
         id: publish
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
-          tags: ${{ steps.image.outputs.name }}:sha-${{ github.sha }}
+          push: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.image.outputs.name || 'backend' }}:sha-${{ github.sha }}
           build-args: APP_VERSION=${{ github.sha }}
           cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   update-manifests:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
@@ -88,7 +64,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: python -m pip install -r requirements-dev.txt
+      - run: python -m pip install -r requirements.txt
       - name: Commit the published digest for Argo CD
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}

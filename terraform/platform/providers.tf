@@ -18,7 +18,7 @@ terraform {
 }
 
 # Separate states avoid configuring Kubernetes/Helm before the cluster exists.
-# Both directories intentionally use local state; see README before migrating it.
+# Both directories use separate local state files.
 data "terraform_remote_state" "eks" {
   backend = "local"
   config = {

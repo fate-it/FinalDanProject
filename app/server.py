@@ -11,7 +11,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if urlsplit(self.path).path == "/":
             status = 200
-            payload = {"status": "ok", "version": os.getenv("APP_VERSION", "local")}
+            payload = {
+                "status": "ok",
+                "version": os.getenv("APP_VERSION", "local"),
+                "pod_ip": os.getenv("POD_IP") or self.connection.getsockname()[0],
+            }
         else:
             status = 404
             payload = {"error": "not found"}
